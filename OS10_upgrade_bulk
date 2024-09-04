@@ -1,0 +1,98 @@
+import pandas as pd
+from netmiko import ConnectHandler
+import re
+import time
+
+def configure_sftp_vrf_management(net_connect):
+    """
+    Configure SFTP to use VRF management.
+    """
+    print("Configuring SFTP to use VRF management...")
+    try:
+        net_connect.config_mode()
+        output = net_connect.send_command_timing('ip sftp vrf management')
+        print(f"Output after 'ip sftp vrf management': {output!r}")  # Print exact output for debugging
+        if "% Warning: SFTP client will be disabled" in output:
+            print("Warning detected, sending 'yes'...")
+            time.sleep(1)  # Add a small delay to ensure the device is ready for the next command
+            output = net_connect.send_command_timing('yes')
+            print(f"Output after sending 'yes': {output!r}")  # Print exact output for debugging
+
+            # Check if the command 'yes' was correctly acknowledged
+            if "yes" in output.lower():  # Using lower() to avoid case sensitivity issues
+                # Write memory to save the configuration
+                output = net_connect.send_command_timing('write memory')
+                print(f"Output after 'write memory': {output!r}")  # Print exact output for debugging
+        net_connect.exit_config_mode()
+        print("SFTP configuration completed.")
+    except Exception as e:
+        print(f"Error configuring SFTP: {e}")
+
+def upgrade_switch(ip, username, password, install_command):
+    # Define device parameters for Netmiko
+    device = {
+        'device_type': 'dell_os10',
+        'host': ip,
+        'username': username,
+        'password': password,
+    }
+    try:
+        # Connect to the switch
+        print(f"Connecting to {ip}...")
+        net_connect = ConnectHandler(**device)
+
+        # Configure SFTP to use VRF management
+        configure_sftp_vrf_management(net_connect)
+
+        # Install the image using the provided command
+        print(f"Installing image on {ip}...")
+        output = net_connect.send_command_timing(install_command)
+
+        # Check installation status until it shows 'Completed: Success'
+        while 'Completed: Success' not in output:
+            print(f"Checking installation status on {ip}...")
+            time.sleep(60)  # Check every 60 seconds
+            output = net_connect.send_command('show image status')
+        print(f"Image installation completed successfully on {ip}.")
+
+        # Set boot partition to partition B
+        print(f"Switching to boot partition B on {ip}...")
+        net_connect.send_command_timing('boot system standby')
+
+        # Reload the switch
+        print(f"Reloading {ip}...")
+        output = net_connect.send_command_timing('reload')
+        if "Proceed to reboot the system? [confirm yes/no]:" in output:
+            print("Prompt detected, sending 'yes'...")
+            output = net_connect.send_command_timing('yes')
+            print(f"Output after sending 'yes': {output!r}")  # Print exact output for debugging
+
+        # Disconnect from the switch
+        net_connect.disconnect()
+        print(f"Upgrade process completed for {ip}.")
+    except Exception as e:
+        print(f"Error upgrading switch {ip}: {e}")
+
+def read_devices_from_excel(file_path):
+    try:
+        df = pd.read_excel(file_path)
+        return df.to_dict('records')
+    except Exception as e:
+        print(f"Error reading devices from the spreadsheet: {e}")
+        return []
+
+def main():
+    # Configuration
+    file_path = 'devices.xlsx'  # Update with your file path
+    install_command = 'image install sftp://lab:LOGIN-GOES-HERE@IP-GOES-HERE/home/lab/dellSwitchFirmware/PKGS_OS10-Enterprise-10.5.5.5.105buster-installer-x86_64.bin'  # Define the install command
+    # Read devices from the spreadsheet
+    devices = read_devices_from_excel(file_path)
+    if not devices:
+        print("No devices found in the spreadsheet. Exiting.")
+        return
+    # Upgrade each switch
+    for device in devices:
+        upgrade_switch(device['IP'], device['Username'], device['Password'], install_command)
+
+if __name__ == "__main__":
+    main()
