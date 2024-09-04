@@ -40,3 +40,6 @@ For debugging purposes, the script prints the output of each major command, allo
 
 Contribution
 Feel free to fork this repository, submit pull requests, or open issues if you encounter any problems or have suggestions for improvements.
+
+License
+This project is licensed under the MIT License. See the LICENSE file for details.
